@@ -4,7 +4,6 @@ All buffers are owned by Python. Addresses cross the ABI as Int values and
 are rebuilt as non-null pointers only inside functions that use them.
 """
 
-from std.algorithm import parallelize
 from std.sys import simd_width_of
 
 comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
@@ -159,16 +158,8 @@ def mz_shuffle(
     var dst = bp(dst_addr)
     var count = nbytes // element_size
 
-    @parameter
-    @__copy_capture(src, dst, count, element_size)
-    def work(byte: Int):
+    for byte in range(element_size):
         shuffle_plane(src, dst, count, element_size, byte)
-
-    if nbytes >= 8 * 1024 * 1024 and element_size > 1:
-        parallelize[work](element_size, element_size)
-    else:
-        for byte in range(element_size):
-            shuffle_plane(src, dst, count, element_size, byte)
 
 
 @export("mz_unshuffle")
@@ -181,16 +172,8 @@ def mz_unshuffle(
     var dst = bp(dst_addr)
     var count = nbytes // element_size
 
-    @parameter
-    @__copy_capture(src, dst, count, element_size)
-    def work(byte: Int):
+    for byte in range(element_size):
         unshuffle_plane(src, dst, count, element_size, byte)
-
-    if nbytes >= 8 * 1024 * 1024 and element_size > 1:
-        parallelize[work](element_size, element_size)
-    else:
-        for byte in range(element_size):
-            unshuffle_plane(src, dst, count, element_size, byte)
 
 
 @export("mz_packbits")
