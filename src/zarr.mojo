@@ -4,6 +4,7 @@ All buffers are owned by Python. Addresses cross the ABI as Int values and
 are rebuilt as non-null pointers only inside functions that use them.
 """
 
+from max.algorithm import parallelize
 from std.sys import simd_width_of
 
 comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
@@ -12,6 +13,8 @@ comptime U32Ptr = UnsafePointer[UInt32, AnyOrigin[mut=True]]
 comptime U64Ptr = UnsafePointer[UInt64, AnyOrigin[mut=True]]
 comptime F32Ptr = UnsafePointer[Float32, AnyOrigin[mut=True]]
 comptime F64Ptr = UnsafePointer[Float64, AnyOrigin[mut=True]]
+comptime SHUFFLE_PARALLEL_THRESHOLD = 8 * 1024 * 1024
+comptime SHUFFLE_WORKERS = 8
 
 
 def bp(addr: Int) -> BPtr:
@@ -114,37 +117,127 @@ def mz_delta_decode(
     delta_decode(bp(src_addr), bp(dst_addr), n, kind)
 
 
-def shuffle_plane(
-    src: BPtr, dst: BPtr, count: Int, element_size: Int, byte: Int
+def shuffle_range(
+    src: BPtr,
+    dst: BPtr,
+    count: Int,
+    element_size: Int,
+    start: Int,
+    stop: Int,
 ):
-    comptime W = simd_width_of[DType.uint8]()
-    var i = 0
-    var vector_end = count - count % W
-    while i < vector_end:
-        var values = (src + byte + i * element_size).strided_load[width=W](
-            element_size
-        )
-        dst.store(i + byte * count, values)
-        i += W
-    while i < count:
-        dst[byte * count + i] = src[i * element_size + byte]
+    comptime W = simd_width_of[DType.float64]()
+    comptime BYTE_W = W * 8
+    var i = start
+    if element_size != 4 and element_size != 8:
+        for byte in range(element_size):
+            i = start
+            while i + BYTE_W <= stop:
+                var values = (
+                    src + byte + i * element_size
+                ).strided_load[width=BYTE_W](element_size)
+                dst.store[alignment=1](byte * count + i, values)
+                i += BYTE_W
+            while i < stop:
+                dst[byte * count + i] = src[i * element_size + byte]
+                i += 1
+        return
+    if element_size == 4:
+        comptime PLANE_W = BYTE_W // 4
+        while i + PLANE_W <= stop:
+            var values = src.load[width=BYTE_W, alignment=1](i * 4)
+            var even, odd = values.deinterleave()
+            var byte0, byte2 = even.deinterleave()
+            var byte1, byte3 = odd.deinterleave()
+            dst.store[alignment=1](i, byte0)
+            dst.store[alignment=1](count + i, byte1)
+            dst.store[alignment=1](2 * count + i, byte2)
+            dst.store[alignment=1](3 * count + i, byte3)
+            i += PLANE_W
+    elif element_size == 8:
+        comptime PLANE_W = BYTE_W // 8
+        while i + PLANE_W <= stop:
+            var values = src.load[width=BYTE_W, alignment=1](i * 8)
+            var even, odd = values.deinterleave()
+            var byte04, byte26 = even.deinterleave()
+            var byte15, byte37 = odd.deinterleave()
+            var byte0, byte4 = byte04.deinterleave()
+            var byte2, byte6 = byte26.deinterleave()
+            var byte1, byte5 = byte15.deinterleave()
+            var byte3, byte7 = byte37.deinterleave()
+            dst.store[alignment=1](i, byte0)
+            dst.store[alignment=1](count + i, byte1)
+            dst.store[alignment=1](2 * count + i, byte2)
+            dst.store[alignment=1](3 * count + i, byte3)
+            dst.store[alignment=1](4 * count + i, byte4)
+            dst.store[alignment=1](5 * count + i, byte5)
+            dst.store[alignment=1](6 * count + i, byte6)
+            dst.store[alignment=1](7 * count + i, byte7)
+            i += PLANE_W
+    while i < stop:
+        for byte in range(element_size):
+            dst[byte * count + i] = src[i * element_size + byte]
         i += 1
 
 
-def unshuffle_plane(
-    src: BPtr, dst: BPtr, count: Int, element_size: Int, byte: Int
+def unshuffle_range(
+    src: BPtr,
+    dst: BPtr,
+    count: Int,
+    element_size: Int,
+    start: Int,
+    stop: Int,
 ):
-    comptime W = simd_width_of[DType.uint8]()
-    var i = 0
-    var vector_end = count - count % W
-    while i < vector_end:
-        var values = src.load[width=W](i + byte * count)
-        (dst + byte + i * element_size).strided_store[width=W](
-            values, element_size
-        )
-        i += W
-    while i < count:
-        dst[i * element_size + byte] = src[byte * count + i]
+    comptime W = simd_width_of[DType.float64]()
+    comptime BYTE_W = W * 8
+    var i = start
+    if element_size != 4 and element_size != 8:
+        for byte in range(element_size):
+            i = start
+            while i + BYTE_W <= stop:
+                var values = src.load[width=BYTE_W, alignment=1](
+                    byte * count + i
+                )
+                (dst + byte + i * element_size).strided_store[width=BYTE_W](
+                    values, element_size
+                )
+                i += BYTE_W
+            while i < stop:
+                dst[i * element_size + byte] = src[byte * count + i]
+                i += 1
+        return
+    if element_size == 4:
+        comptime PLANE_W = BYTE_W // 4
+        while i + PLANE_W <= stop:
+            var byte0 = src.load[width=PLANE_W, alignment=1](i)
+            var byte1 = src.load[width=PLANE_W, alignment=1](count + i)
+            var byte2 = src.load[width=PLANE_W, alignment=1](2 * count + i)
+            var byte3 = src.load[width=PLANE_W, alignment=1](3 * count + i)
+            var even = byte0.interleave(byte2)
+            var odd = byte1.interleave(byte3)
+            dst.store[alignment=1](i * 4, even.interleave(odd))
+            i += PLANE_W
+    elif element_size == 8:
+        comptime PLANE_W = BYTE_W // 8
+        while i + PLANE_W <= stop:
+            var byte0 = src.load[width=PLANE_W, alignment=1](i)
+            var byte1 = src.load[width=PLANE_W, alignment=1](count + i)
+            var byte2 = src.load[width=PLANE_W, alignment=1](2 * count + i)
+            var byte3 = src.load[width=PLANE_W, alignment=1](3 * count + i)
+            var byte4 = src.load[width=PLANE_W, alignment=1](4 * count + i)
+            var byte5 = src.load[width=PLANE_W, alignment=1](5 * count + i)
+            var byte6 = src.load[width=PLANE_W, alignment=1](6 * count + i)
+            var byte7 = src.load[width=PLANE_W, alignment=1](7 * count + i)
+            var byte04 = byte0.interleave(byte4)
+            var byte26 = byte2.interleave(byte6)
+            var byte15 = byte1.interleave(byte5)
+            var byte37 = byte3.interleave(byte7)
+            var even = byte04.interleave(byte26)
+            var odd = byte15.interleave(byte37)
+            dst.store[alignment=1](i * 8, even.interleave(odd))
+            i += PLANE_W
+    while i < stop:
+        for byte in range(element_size):
+            dst[i * element_size + byte] = src[byte * count + i]
         i += 1
 
 
@@ -158,8 +251,17 @@ def mz_shuffle(
     var dst = bp(dst_addr)
     var count = nbytes // element_size
 
-    for byte in range(element_size):
-        shuffle_plane(src, dst, count, element_size, byte)
+    if nbytes >= SHUFFLE_PARALLEL_THRESHOLD and count >= SHUFFLE_WORKERS:
+
+        @parameter
+        def work(worker: Int):
+            var start = count * worker // SHUFFLE_WORKERS
+            var stop = count * (worker + 1) // SHUFFLE_WORKERS
+            shuffle_range(src, dst, count, element_size, start, stop)
+
+        parallelize[work](SHUFFLE_WORKERS, SHUFFLE_WORKERS)
+    else:
+        shuffle_range(src, dst, count, element_size, 0, count)
 
 
 @export("mz_unshuffle")
@@ -172,8 +274,17 @@ def mz_unshuffle(
     var dst = bp(dst_addr)
     var count = nbytes // element_size
 
-    for byte in range(element_size):
-        unshuffle_plane(src, dst, count, element_size, byte)
+    if nbytes >= SHUFFLE_PARALLEL_THRESHOLD and count >= SHUFFLE_WORKERS:
+
+        @parameter
+        def work(worker: Int):
+            var start = count * worker // SHUFFLE_WORKERS
+            var stop = count * (worker + 1) // SHUFFLE_WORKERS
+            unshuffle_range(src, dst, count, element_size, start, stop)
+
+        parallelize[work](SHUFFLE_WORKERS, SHUFFLE_WORKERS)
+    else:
+        unshuffle_range(src, dst, count, element_size, 0, count)
 
 
 @export("mz_packbits")

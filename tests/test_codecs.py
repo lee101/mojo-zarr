@@ -47,9 +47,18 @@ def test_shuffle_is_byte_identical_to_numcodecs(elementsize):
     assert np.array_equal(ours.decode(encoded), source)
 
 
-def test_shuffle_parallel_simd_tail_matches_numcodecs():
+@pytest.mark.parametrize("count", [(1 << 20) - 1, (1 << 20) + 3])
+def test_shuffle_parallel_threshold_and_simd_tail_matches_numcodecs(count):
     elementsize = 8
-    count = (1 << 20) + 3
+    source = rng.integers(0, 256, count * elementsize, dtype=np.uint8)
+    ours = mz.Shuffle(elementsize)
+    encoded = ours.encode(source)
+    assert np.array_equal(encoded, numcodecs.Shuffle(elementsize).encode(source))
+    assert np.array_equal(ours.decode(encoded), source)
+
+
+@pytest.mark.parametrize("elementsize,count", [(4, 4099), (8, 4099)])
+def test_shuffle_simd_scalar_tail_matches_numcodecs(elementsize, count):
     source = rng.integers(0, 256, count * elementsize, dtype=np.uint8)
     ours = mz.Shuffle(elementsize)
     encoded = ours.encode(source)

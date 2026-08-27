@@ -95,18 +95,19 @@ Mojo time, so values above 1 mean Mojo is faster.
 
 | case | mojo-zarr | upstream | upstream / Mojo |
 |---|---:|---:|---:|
-| Delta.encode, 12M int32 | 53.17 ms | 102.55 ms | 1.93x (faster) |
-| Shuffle.encode, 64 MB / 8-byte | 34.15 ms | 92.31 ms | 2.70x (faster) |
-| PackBits.encode, 40M bool | 5.79 ms | 6.52 ms | 1.13x (faster) |
-| CRC32, 16 MB | 13.40 ms | 13.36 ms | 1.00x (slower) |
-| Chunk write, 16 MB + codecs | 71.44 ms | 155.00 ms | 2.17x (faster) |
-| Chunk read, 16 MB + codecs | 87.85 ms | 105.11 ms | 1.20x (faster) |
+| Delta.encode, 12M int32 | 279.78 ms | 403.58 ms | 1.44x (faster) |
+| Shuffle.encode, 64 MB / 8-byte | 443.78 ms | 487.74 ms | 1.10x (faster) |
+| PackBits.encode, 40M bool | 5.52 ms | 5.68 ms | 1.03x (faster) |
+| CRC32, 16 MB | 13.12 ms | 12.92 ms | 0.98x (slower) |
+| Chunk write, 16 MB + codecs | 62.59 ms | 203.63 ms | 3.25x (faster) |
+| Chunk read, 16 MB + codecs | 104.28 ms | 104.53 ms | 1.00x (faster) |
 
-Shuffle uses native-width strided SIMD and parallel byte planes above 8 MiB.
-PackBits handles eight boolean bytes per SIMD lane and uses scalar tails for
-unaligned remainders. Large independent chunk sets use bounded CPU threads;
-full-chunk writes skip read/modify/decode, and decode pipelines reuse their
-final NumPy destination.
+Shuffle uses contiguous native-width SIMD transposes for 4- and 8-byte
+elements, strided SIMD for other widths, scalar tails, and eight bounded
+element ranges at or above 8 MiB. PackBits handles eight boolean bytes per
+SIMD lane and uses scalar tails for unaligned remainders. Large independent
+chunk sets use bounded CPU threads; full-chunk writes skip read/modify/decode,
+and decode pipelines reuse their final NumPy destination.
 
 No GPU path is provided. Shuffle and PackBits are byte-bandwidth-bound, CRC32
 has a serial recurrence handled by native zlib, and chunk I/O is dominated by
