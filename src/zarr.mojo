@@ -4,7 +4,6 @@ All buffers are owned by Python. Addresses cross the ABI as Int values and
 are rebuilt as non-null pointers only inside functions that use them.
 """
 
-from max.algorithm import parallelize
 from std.sys import simd_width_of
 
 comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
@@ -252,14 +251,10 @@ def mz_shuffle(
     var count = nbytes // element_size
 
     if nbytes >= SHUFFLE_PARALLEL_THRESHOLD and count >= SHUFFLE_WORKERS:
-
-        @parameter
-        def work(worker: Int):
+        for worker in range(SHUFFLE_WORKERS):
             var start = count * worker // SHUFFLE_WORKERS
             var stop = count * (worker + 1) // SHUFFLE_WORKERS
             shuffle_range(src, dst, count, element_size, start, stop)
-
-        parallelize[work](SHUFFLE_WORKERS, SHUFFLE_WORKERS)
     else:
         shuffle_range(src, dst, count, element_size, 0, count)
 
@@ -275,14 +270,10 @@ def mz_unshuffle(
     var count = nbytes // element_size
 
     if nbytes >= SHUFFLE_PARALLEL_THRESHOLD and count >= SHUFFLE_WORKERS:
-
-        @parameter
-        def work(worker: Int):
+        for worker in range(SHUFFLE_WORKERS):
             var start = count * worker // SHUFFLE_WORKERS
             var stop = count * (worker + 1) // SHUFFLE_WORKERS
             unshuffle_range(src, dst, count, element_size, start, stop)
-
-        parallelize[work](SHUFFLE_WORKERS, SHUFFLE_WORKERS)
     else:
         unshuffle_range(src, dst, count, element_size, 0, count)
 
