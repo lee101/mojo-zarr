@@ -143,7 +143,7 @@ def shuffle_range(
     if element_size == 4:
         comptime PLANE_W = BYTE_W // 4
         while i + PLANE_W <= stop:
-            var values = src.load[width=BYTE_W, alignment=1](i * 4)
+            var values = src.unsafe_load[width=BYTE_W, alignment=1](i * 4)
             var even, odd = values.deinterleave()
             var byte0, byte2 = even.deinterleave()
             var byte1, byte3 = odd.deinterleave()
@@ -155,7 +155,7 @@ def shuffle_range(
     elif element_size == 8:
         comptime PLANE_W = BYTE_W // 8
         while i + PLANE_W <= stop:
-            var values = src.load[width=BYTE_W, alignment=1](i * 8)
+            var values = src.unsafe_load[width=BYTE_W, alignment=1](i * 8)
             var even, odd = values.deinterleave()
             var byte04, byte26 = even.deinterleave()
             var byte15, byte37 = odd.deinterleave()
@@ -193,7 +193,7 @@ def unshuffle_range(
         for byte in range(element_size):
             i = start
             while i + BYTE_W <= stop:
-                var values = src.load[width=BYTE_W, alignment=1](
+                var values = src.unsafe_load[width=BYTE_W, alignment=1](
                     byte * count + i
                 )
                 (dst + byte + i * element_size).strided_store[width=BYTE_W](
@@ -207,10 +207,10 @@ def unshuffle_range(
     if element_size == 4:
         comptime PLANE_W = BYTE_W // 4
         while i + PLANE_W <= stop:
-            var byte0 = src.load[width=PLANE_W, alignment=1](i)
-            var byte1 = src.load[width=PLANE_W, alignment=1](count + i)
-            var byte2 = src.load[width=PLANE_W, alignment=1](2 * count + i)
-            var byte3 = src.load[width=PLANE_W, alignment=1](3 * count + i)
+            var byte0 = src.unsafe_load[width=PLANE_W, alignment=1](i)
+            var byte1 = src.unsafe_load[width=PLANE_W, alignment=1](count + i)
+            var byte2 = src.unsafe_load[width=PLANE_W, alignment=1](2 * count + i)
+            var byte3 = src.unsafe_load[width=PLANE_W, alignment=1](3 * count + i)
             var even = byte0.interleave(byte2)
             var odd = byte1.interleave(byte3)
             dst.store[alignment=1](i * 4, even.interleave(odd))
@@ -218,14 +218,14 @@ def unshuffle_range(
     elif element_size == 8:
         comptime PLANE_W = BYTE_W // 8
         while i + PLANE_W <= stop:
-            var byte0 = src.load[width=PLANE_W, alignment=1](i)
-            var byte1 = src.load[width=PLANE_W, alignment=1](count + i)
-            var byte2 = src.load[width=PLANE_W, alignment=1](2 * count + i)
-            var byte3 = src.load[width=PLANE_W, alignment=1](3 * count + i)
-            var byte4 = src.load[width=PLANE_W, alignment=1](4 * count + i)
-            var byte5 = src.load[width=PLANE_W, alignment=1](5 * count + i)
-            var byte6 = src.load[width=PLANE_W, alignment=1](6 * count + i)
-            var byte7 = src.load[width=PLANE_W, alignment=1](7 * count + i)
+            var byte0 = src.unsafe_load[width=PLANE_W, alignment=1](i)
+            var byte1 = src.unsafe_load[width=PLANE_W, alignment=1](count + i)
+            var byte2 = src.unsafe_load[width=PLANE_W, alignment=1](2 * count + i)
+            var byte3 = src.unsafe_load[width=PLANE_W, alignment=1](3 * count + i)
+            var byte4 = src.unsafe_load[width=PLANE_W, alignment=1](4 * count + i)
+            var byte5 = src.unsafe_load[width=PLANE_W, alignment=1](5 * count + i)
+            var byte6 = src.unsafe_load[width=PLANE_W, alignment=1](6 * count + i)
+            var byte7 = src.unsafe_load[width=PLANE_W, alignment=1](7 * count + i)
             var byte04 = byte0.interleave(byte4)
             var byte26 = byte2.interleave(byte6)
             var byte15 = byte1.interleave(byte5)
@@ -290,7 +290,7 @@ def mz_packbits(src_addr: Int, dst_addr: Int, n: Int) abi("C"):
     var i = 0
     var vector_end = groups - groups % W
     while i < vector_end:
-        var values = words.load[width=W, alignment=1](i)
+        var values = words.unsafe_load[width=W, alignment=1](i)
         var packed = (
             (values & UInt64(0x0101010101010101))
             * UInt64(0x8040201008040201)
@@ -298,7 +298,7 @@ def mz_packbits(src_addr: Int, dst_addr: Int, n: Int) abi("C"):
         dst.store(i, packed.cast[DType.uint8]())
         i += W
     while i < groups:
-        var word = words.load[alignment=1](i)
+        var word = words.unsafe_load[alignment=1](i)
         var value = (
             (word & UInt64(0x0101010101010101))
             * UInt64(0x8040201008040201)
